@@ -179,7 +179,6 @@ USER nobody:nogroup
 COPY --chown=nobody:nogroup bin ./bin
 COPY --chown=nobody:nogroup manage.py ./
 COPY --chown=nobody:nogroup checks ./checks
-COPY --chown=nobody:nogroup frontend ./frontend
 COPY --chown=nobody:nogroup interface ./interface
 COPY --chown=nobody:nogroup internetnl ./internetnl
 COPY --chown=nobody:nogroup translations ./translations
@@ -197,7 +196,6 @@ RUN install -d -m 0755 -o nobody -g nogroup /app/batch_results
 # storage these in a place for django to find
 RUN mkdir -p /app/static_frontend
 RUN python3 bin/frontend.py js
-RUN python3 bin/frontend.py css
 
 # generate language files
 RUN python3 bin/pofiles.py to_django
@@ -210,7 +208,16 @@ RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py compile
 RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py collectstatic --no-input
 RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py api_generate_doc
 
+FROM node:18.20 AS frontend
+
+ADD frontend/ /src/frontend
+WORKDIR /src/frontend
+RUN npm install
+RUN npm run css:build
+
 FROM build-app AS app
+
+COPY --from=frontend /src/frontend/build/*.css /app/static_frontend/css/
 
 ARG RELEASE
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=$RELEASE
