@@ -208,7 +208,11 @@ RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py compile
 RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py collectstatic --no-input
 RUN SKIP_SECRET_KEY_CHECK=True CACHE_LOCATION= ENABLE_BATCH= ./manage.py api_generate_doc
 
-FROM node:18.20 AS frontend
+FROM debian:bullseye-20241111-slim AS frontend
+
+# install npm from official image, to be similar to the app-dev method for consistency
+COPY --from=node:20-slim /usr/local/bin/ /usr/local/bin/
+COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 
 ADD frontend/ /src/frontend
 WORKDIR /src/frontend
@@ -217,7 +221,7 @@ RUN npm run css:build
 
 FROM build-app AS app
 
-COPY --from=frontend /src/frontend/build/*.css /app/static_frontend/css/
+COPY --from=frontend --chown=nobody:nogroup /app/static_frontend/css/*.css /app/static_frontend/css/
 
 ARG RELEASE
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=$RELEASE
@@ -225,6 +229,29 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=$RELEASE
 # define default entrypoint and command
 ENTRYPOINT [ "python3", "./manage.py"]
 CMD ["runserver", "0.0.0.0:8080"]
+
+# app image with development tools for better live reloading
+FROM app AS app-dev
+
+USER root
+
+# copy development dependencies
+COPY --from=linttest-deps /usr/local/lib/python${PYTHON_VERSION}/dist-packages/django_browser_reload /usr/local/lib/python${PYTHON_VERSION}/dist-packages/django_browser_reload
+
+# install npm and node in exisiting debian OS for CSS build
+COPY --from=node:20-slim /usr/local/bin/ /usr/local/bin/
+COPY --from=node:20-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# install postcss CSS build tool
+ADD frontend/ /src/frontend
+
+WORKDIR /src/frontend
+USER root
+RUN npm install
+
+# restore 'app' environment
+USER nobody:nogroup
+WORKDIR /app
 
 # supplement application with unittest, lint dependencies
 FROM build-app AS linttest
